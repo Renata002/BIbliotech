@@ -5,9 +5,24 @@ require_once __DIR__ . '/../../database/conexao.php';
 
 exigirPerfil(['admin', 'professor']);
 
-// Inicializar variáveis.
+// 1. Receber o ID pela URL ou pelo formulário.
 $id = null;
+$erroId = false;
 
+$idRecebido = $_SERVER['REQUEST_METHOD'] === 'POST'
+    ? ($_POST['id'] ?? '')
+    : ($_GET['id'] ?? '');
+
+if ($idRecebido !== '') {
+    $id = filter_var($idRecebido, FILTER_VALIDATE_INT);
+
+    if ($id === false || $id <= 0) {
+        $id = null;
+        $erroId = true;
+    }
+}
+
+// Dados iniciais do formulário.
 $usuario = [
     'nome' => '',
     'email' => '',
@@ -18,112 +33,228 @@ $usuario = [
 $mensagem = '';
 $tipoMensagem = '';
 
-// Verificar se o formulário foi enviado.
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+$usuarioExiste = false;
 
-    // 1. Receber os dados.
-    $nome = trim($_POST['nome'] ?? '');
-    $email = trim($_POST['email'] ?? '');
-    $senha = $_POST['senha'] ?? '';
-    $tipo = $_POST['tipo'] ?? '';
-    $status = $_POST['status'] ?? '';
+// 2. Localizar o usuário quando houver ID.
+if (!$erroId && $id !== null) {
 
-    // Manter os dados preenchidos.
-    $usuario = [
-        'nome' => $nome,
-        'email' => $email,
-        'tipo' => $tipo,
-        'status' => $status
-    ];
+    try {
+        $stmt = $pdo->prepare(
+            'SELECT id, nome, email, tipo, status
+             FROM usuarios
+             WHERE id = :id'
+        );
 
-    // 2. Validar campos obrigatórios.
-    if (
-        $nome === '' ||
-        $email === '' ||
-        trim($senha) === '' ||
-        $tipo === '' ||
-        $status === ''
-    ) {
+        $stmt->execute([':id' => $id]);
 
-        $mensagem = 'Preencha todos os campos obrigatórios.';
+        $dadosUsuario = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        if ($dadosUsuario) {
+            $usuario = $dadosUsuario;
+            $usuarioExiste = true;
+        } else {
+            $mensagem = 'Usuário não encontrado.';
+            $tipoMensagem = 'erro';
+        }
+
+    } catch (PDOException $e) {
+        $mensagem = 'Erro ao localizar o usuário.';
         $tipoMensagem = 'erro';
+    }
+}
 
-    // 3. Validar o e-mail.
-    } elseif (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+// 3. Processar o formulário.
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && !$erroId) {
 
-        $mensagem = 'Informe um endereço de e-mail válido.';
-        $tipoMensagem = 'erro';
+    // Impedir alteração de um usuário inexistente.
+    if ($id !== null && !$usuarioExiste) {
 
-    // 4. Validar tipo e status.
-    } elseif (
-        !in_array($tipo, ['aluno', 'professor', 'admin'], true) ||
-        !in_array($status, ['ativo', 'bloqueado'], true)
-    ) {
-
-        $mensagem = 'Tipo de usuário ou status inválido.';
+        $mensagem = 'Não foi possível localizar o usuário.';
         $tipoMensagem = 'erro';
 
     } else {
 
-        try {
+        // Receber os dados.
+        $nome = trim($_POST['nome'] ?? '');
+        $email = trim($_POST['email'] ?? '');
+        $senha = $_POST['senha'] ?? '';
+        $tipo = $_POST['tipo'] ?? '';
+        $status = $_POST['status'] ?? '';
 
-            // 5. Verificar e-mail duplicado.
-            $stmt = $pdo->prepare(
-                'SELECT id FROM usuarios WHERE email = :email'
-            );
+        // Manter os dados no formulário.
+        $usuario = [
+            'nome' => $nome,
+            'email' => $email,
+            'tipo' => $tipo,
+            'status' => $status
+        ];
 
-            $stmt->execute([
-                ':email' => $email
-            ]);
+        // 4. Validar os campos obrigatórios.
+        if (
+            $nome === '' ||
+            $email === '' ||
+            $tipo === '' ||
+            $status === '' ||
+            ($id === null && trim($senha) === '')
+        ) {
 
-            if ($stmt->fetch(PDO::FETCH_ASSOC)) {
-
-                $mensagem = 'Este e-mail já está cadastrado.';
-                $tipoMensagem = 'erro';
-
-            } else {
-
-                // 6. Proteger a senha.
-                $senhaHash = password_hash(
-                    $senha,
-                    PASSWORD_DEFAULT
-                );
-
-                // 7. Inserir usuário no banco.
-                $stmt = $pdo->prepare(
-                    'INSERT INTO usuarios
-                    (nome, email, senha, tipo, status)
-                    VALUES
-                    (:nome, :email, :senha, :tipo, :status)'
-                );
-
-                $stmt->execute([
-                    ':nome' => $nome,
-                    ':email' => $email,
-                    ':senha' => $senhaHash,
-                    ':tipo' => $tipo,
-                    ':status' => $status
-                ]);
-
-                // 8. Mensagem de sucesso.
-                $mensagem = 'Usuário cadastrado com sucesso!';
-                $tipoMensagem = 'sucesso';
-
-                // Limpar formulário.
-                $usuario = [
-                    'nome' => '',
-                    'email' => '',
-                    'tipo' => 'aluno',
-                    'status' => 'ativo'
-                ];
-            }
-
-        } catch (PDOException $e) {
-
-            // Mostrar erro detalhado durante os testes.
-            $mensagem = 'Erro ao cadastrar: ' . $e->getMessage();
+            $mensagem = 'Preencha todos os campos obrigatórios.';
             $tipoMensagem = 'erro';
 
+        // 5. Validar o formato do e-mail.
+        } elseif (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+
+            $mensagem = 'Informe um e-mail válido.';
+            $tipoMensagem = 'erro';
+
+        // 6. Validar tipo e status.
+        } elseif (
+            !in_array($tipo, ['aluno', 'professor', 'admin'], true) ||
+            !in_array($status, ['ativo', 'bloqueado'], true)
+        ) {
+
+            $mensagem = 'Tipo de usuário ou status inválido.';
+            $tipoMensagem = 'erro';
+
+        } else {
+
+            try {
+
+                // 7. Verificar se o e-mail já pertence a outro usuário.
+                if ($id !== null) {
+
+                    $stmt = $pdo->prepare(
+                        'SELECT id FROM usuarios
+                         WHERE email = :email
+                         AND id <> :id'
+                    );
+
+                    $stmt->execute([
+                        ':email' => $email,
+                        ':id' => $id
+                    ]);
+
+                } else {
+
+                    $stmt = $pdo->prepare(
+                        'SELECT id FROM usuarios
+                         WHERE email = :email'
+                    );
+
+                    $stmt->execute([
+                        ':email' => $email
+                    ]);
+                }
+
+                if ($stmt->fetch(PDO::FETCH_ASSOC)) {
+
+                    $mensagem = 'Este e-mail já está cadastrado por outro usuário.';
+                    $tipoMensagem = 'erro';
+
+                } else {
+
+                    // 8. Verificar se é edição ou cadastro.
+                    if ($id !== null) {
+
+                        // EDITAR USUÁRIO.
+
+                        if (trim($senha) !== '') {
+
+                            // Proteger a nova senha.
+                            $senhaHash = password_hash(
+                                $senha,
+                                PASSWORD_DEFAULT
+                            );
+
+                            // Atualizar incluindo a senha.
+                            $stmt = $pdo->prepare(
+                                'UPDATE usuarios
+                                 SET nome = :nome,
+                                     email = :email,
+                                     senha = :senha,
+                                     tipo = :tipo,
+                                     status = :status
+                                 WHERE id = :id'
+                            );
+
+                            $stmt->execute([
+                                ':nome' => $nome,
+                                ':email' => $email,
+                                ':senha' => $senhaHash,
+                                ':tipo' => $tipo,
+                                ':status' => $status,
+                                ':id' => $id
+                            ]);
+
+                        } else {
+
+                            // Atualizar sem alterar a senha.
+                            $stmt = $pdo->prepare(
+                                'UPDATE usuarios
+                                 SET nome = :nome,
+                                     email = :email,
+                                     tipo = :tipo,
+                                     status = :status
+                                 WHERE id = :id'
+                            );
+
+                            $stmt->execute([
+                                ':nome' => $nome,
+                                ':email' => $email,
+                                ':tipo' => $tipo,
+                                ':status' => $status,
+                                ':id' => $id
+                            ]);
+                        }
+
+                        $mensagem = 'Usuário atualizado com sucesso!';
+                        $tipoMensagem = 'sucesso';
+
+                        // Atualizar os dados exibidos.
+                        $usuarioExiste = true;
+
+                    } else {
+
+                        // CADASTRAR NOVO USUÁRIO.
+
+                        $senhaHash = password_hash(
+                            $senha,
+                            PASSWORD_DEFAULT
+                        );
+
+                        $stmt = $pdo->prepare(
+                            'INSERT INTO usuarios
+                             (nome, email, senha, tipo, status)
+                             VALUES
+                             (:nome, :email, :senha, :tipo, :status)'
+                        );
+
+                        $stmt->execute([
+                            ':nome' => $nome,
+                            ':email' => $email,
+                            ':senha' => $senhaHash,
+                            ':tipo' => $tipo,
+                            ':status' => $status
+                        ]);
+
+                        $mensagem = 'Usuário cadastrado com sucesso!';
+                        $tipoMensagem = 'sucesso';
+
+                        // Limpar formulário após o cadastro.
+                        $usuario = [
+                            'nome' => '',
+                            'email' => '',
+                            'tipo' => 'aluno',
+                            'status' => 'ativo'
+                        ];
+                    }
+                }
+
+            } catch (PDOException $e) {
+
+                $mensagem = 'Erro ao salvar usuário. Verifique os dados e tente novamente.';
+                $tipoMensagem = 'erro';
+            }
         }
     }
 }
@@ -136,7 +267,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
-    <title>Novo usuário</title>
+    <title><?= $id !== null ? 'Editar usuário' : 'Novo usuário' ?></title>
 
     <link rel="stylesheet" href="../../assets/css/style.css">
 </head>
@@ -149,9 +280,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     <div class="card">
 
-        <h1>Novo usuário</h1>
+        <h1>
+            <?= $id !== null ? 'Editar usuário' : 'Novo usuário' ?>
+        </h1>
 
-        <?php if (!empty($mensagem)): ?>
+        <?php if ($mensagem !== ''): ?>
 
             <div class="alert">
                 <?= htmlspecialchars($mensagem) ?>
@@ -159,77 +292,94 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         <?php endif; ?>
 
-        <form method="POST" action="">
+        <?php if ($id === null || $usuarioExiste): ?>
 
-            <label for="nome">Nome</label>
+            <form method="POST" action="">
 
-            <input
-                type="text"
-                id="nome"
-                name="nome"
-                value="<?= htmlspecialchars($usuario['nome']) ?>"
-                required
-            >
+                <?php if ($id !== null): ?>
+                    <input
+                        type="hidden"
+                        name="id"
+                        value="<?= htmlspecialchars((string)$id) ?>"
+                    >
+                <?php endif; ?>
 
-            <label for="email">E-mail</label>
+                <label for="nome">Nome</label>
 
-            <input
-                type="email"
-                id="email"
-                name="email"
-                value="<?= htmlspecialchars($usuario['email']) ?>"
-                required
-            >
+                <input
+                    type="text"
+                    id="nome"
+                    name="nome"
+                    value="<?= htmlspecialchars($usuario['nome']) ?>"
+                    required
+                >
 
-            <label for="senha">Senha</label>
+                <label for="email">E-mail</label>
 
-            <input
-                type="password"
-                id="senha"
-                name="senha"
-                required
-            >
+                <input
+                    type="email"
+                    id="email"
+                    name="email"
+                    value="<?= htmlspecialchars($usuario['email']) ?>"
+                    required
+                >
 
-            <label for="tipo">Tipo</label>
+                <label for="senha">
+                    Senha
+                    <?= $id !== null ? '(deixe vazia para manter a atual)' : '' ?>
+                </label>
 
-            <select name="tipo" id="tipo" required>
+                <input
+                    type="password"
+                    id="senha"
+                    name="senha"
+                    <?= $id === null ? 'required' : '' ?>
+                >
 
-                <option value="aluno"
-                    <?= $usuario['tipo'] === 'aluno' ? 'selected' : '' ?>>
-                    Aluno
-                </option>
+                <label for="tipo">Tipo</label>
 
-                <option value="professor"
-                    <?= $usuario['tipo'] === 'professor' ? 'selected' : '' ?>>
-                    Professor
-                </option>
+                <select name="tipo" id="tipo" required>
 
-                <option value="admin"
-                    <?= $usuario['tipo'] === 'admin' ? 'selected' : '' ?>>
-                    Administrador
-                </option>
+                    <option value="aluno"
+                        <?= $usuario['tipo'] === 'aluno' ? 'selected' : '' ?>>
+                        Aluno
+                    </option>
 
-            </select>
+                    <option value="professor"
+                        <?= $usuario['tipo'] === 'professor' ? 'selected' : '' ?>>
+                        Professor
+                    </option>
 
-            <label for="status">Status</label>
+                    <option value="admin"
+                        <?= $usuario['tipo'] === 'admin' ? 'selected' : '' ?>>
+                        Administrador
+                    </option>
 
-            <select name="status" id="status" required>
+                </select>
 
-                <option value="ativo"
-                    <?= $usuario['status'] === 'ativo' ? 'selected' : '' ?>>
-                    Ativo
-                </option>
+                <label for="status">Status</label>
 
-                <option value="bloqueado"
-                    <?= $usuario['status'] === 'bloqueado' ? 'selected' : '' ?>>
-                    Bloqueado
-                </option>
+                <select name="status" id="status" required>
 
-            </select>
+                    <option value="ativo"
+                        <?= $usuario['status'] === 'ativo' ? 'selected' : '' ?>>
+                        Ativo
+                    </option>
 
-            <button type="submit">Salvar</button>
+                    <option value="bloqueado"
+                        <?= $usuario['status'] === 'bloqueado' ? 'selected' : '' ?>>
+                        Bloqueado
+                    </option>
 
-        </form>
+                </select>
+
+                <button type="submit">
+                    Salvar
+                </button>
+
+            </form>
+
+        <?php endif; ?>
 
     </div>
 
