@@ -5,13 +5,13 @@
 body {
     margin: 0;
     font-family: Arial, sans-serif;
-    background: #f4f7f7;
+    background: #e4d5f0;
     color: #263333;
 }
 
 .topbar {
-    background: #046f6f;
-    color: #fff;
+    background: #21046f;
+    color: #b4a7a7;
     padding: 16px 5%;
     display: flex;
     justify-content: space-between;
@@ -43,7 +43,7 @@ body {
 
 .login-card,
 .card {
-    background: #fff;
+    background: #bba7d8;
     border-radius: 12px;
     padding: 24px;
     box-shadow: 0 2px 12px rgba(0, 0, 0, .08);
@@ -64,7 +64,7 @@ select,
 button {
     width: 100%;
     padding: 11px;
-    border: 1px solid #ccd5d5;
+    border: 1px solid #b082d6;
     border-radius: 6px;
     font: inherit;
 }
@@ -72,7 +72,7 @@ button {
 button,
 .button {
     display: inline-block;
-    background: #046f6f;
+    background: #6328a5;
     color: #fff;
     border: 0;
     padding: 11px 16px;
