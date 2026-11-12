@@ -5,7 +5,9 @@ require_once __DIR__ . '/../../database/conexao.php';
 
 exigirPerfil(['admin', 'professor']);
 
-// 1. Receber o ID pela URL ou pelo formulário.
+$tipoUsuario = $_SESSION['tipo'];
+
+// Receber o ID pela URL ou pelo formulário.
 $id = null;
 $erroId = false;
 
@@ -22,7 +24,6 @@ if ($idRecebido !== '') {
     }
 }
 
-// Dados iniciais do formulário.
 $usuario = [
     'nome' => '',
     'email' => '',
@@ -32,12 +33,17 @@ $usuario = [
 
 $mensagem = '';
 $tipoMensagem = '';
-
 $usuarioExiste = false;
+$acessoNegado = false;
 
-// 2. Localizar o usuário quando houver ID.
+// Verificar se o ID recebido é inválido.
+if ($erroId) {
+    $mensagem = 'ID de usuário inválido.';
+    $tipoMensagem = 'erro';
+}
+
+// Localizar usuário quando houver ID.
 if (!$erroId && $id !== null) {
-
     try {
         $stmt = $pdo->prepare(
             'SELECT id, nome, email, tipo, status
@@ -50,8 +56,21 @@ if (!$erroId && $id !== null) {
         $dadosUsuario = $stmt->fetch(PDO::FETCH_ASSOC);
 
         if ($dadosUsuario) {
-            $usuario = $dadosUsuario;
-            $usuarioExiste = true;
+
+            // Professor só pode acessar usuários do tipo aluno.
+            if (
+                $tipoUsuario === 'professor' &&
+                $dadosUsuario['tipo'] !== 'aluno'
+            ) {
+                $acessoNegado = true;
+                $mensagem = 'Você não tem permissão para editar este usuário.';
+                $tipoMensagem = 'erro';
+
+            } else {
+                $usuario = $dadosUsuario;
+                $usuarioExiste = true;
+            }
+
         } else {
             $mensagem = 'Usuário não encontrado.';
             $tipoMensagem = 'erro';
@@ -63,10 +82,13 @@ if (!$erroId && $id !== null) {
     }
 }
 
-// 3. Processar o formulário.
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && !$erroId) {
+// Processar o formulário.
+if (
+    $_SERVER['REQUEST_METHOD'] === 'POST' &&
+    !$erroId &&
+    !$acessoNegado
+) {
 
-    // Impedir alteração de um usuário inexistente.
     if ($id !== null && !$usuarioExiste) {
 
         $mensagem = 'Não foi possível localizar o usuário.';
@@ -74,14 +96,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !$erroId) {
 
     } else {
 
-        // Receber os dados.
         $nome = trim($_POST['nome'] ?? '');
         $email = trim($_POST['email'] ?? '');
         $senha = $_POST['senha'] ?? '';
-        $tipo = $_POST['tipo'] ?? '';
         $status = $_POST['status'] ?? '';
 
-        // Manter os dados no formulário.
+        // Professor só pode cadastrar ou manter usuários como alunos.
+        if ($tipoUsuario === 'professor') {
+            $tipo = 'aluno';
+        } else {
+            $tipo = $_POST['tipo'] ?? '';
+        }
+
         $usuario = [
             'nome' => $nome,
             'email' => $email,
@@ -89,7 +115,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !$erroId) {
             'status' => $status
         ];
 
-        // 4. Validar os campos obrigatórios.
+        // Validar campos obrigatórios.
         if (
             $nome === '' ||
             $email === '' ||
@@ -101,13 +127,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !$erroId) {
             $mensagem = 'Preencha todos os campos obrigatórios.';
             $tipoMensagem = 'erro';
 
-        // 5. Validar o formato do e-mail.
         } elseif (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
 
             $mensagem = 'Informe um e-mail válido.';
             $tipoMensagem = 'erro';
 
-        // 6. Validar tipo e status.
         } elseif (
             !in_array($tipo, ['aluno', 'professor', 'admin'], true) ||
             !in_array($status, ['ativo', 'bloqueado'], true)
@@ -120,7 +144,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !$erroId) {
 
             try {
 
-                // 7. Verificar se o e-mail já pertence a outro usuário.
+                // Verificar se o e-mail já está cadastrado.
                 if ($id !== null) {
 
                     $stmt = $pdo->prepare(
@@ -153,20 +177,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !$erroId) {
 
                 } else {
 
-                    // 8. Verificar se é edição ou cadastro.
+                    // EDITAR USUÁRIO.
                     if ($id !== null) {
-
-                        // EDITAR USUÁRIO.
 
                         if (trim($senha) !== '') {
 
-                            // Proteger a nova senha.
                             $senhaHash = password_hash(
                                 $senha,
                                 PASSWORD_DEFAULT
                             );
 
-                            // Atualizar incluindo a senha.
                             $stmt = $pdo->prepare(
                                 'UPDATE usuarios
                                  SET nome = :nome,
@@ -188,7 +208,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !$erroId) {
 
                         } else {
 
-                            // Atualizar sem alterar a senha.
                             $stmt = $pdo->prepare(
                                 'UPDATE usuarios
                                  SET nome = :nome,
@@ -210,13 +229,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !$erroId) {
                         $mensagem = 'Usuário atualizado com sucesso!';
                         $tipoMensagem = 'sucesso';
 
-                        // Atualizar os dados exibidos.
                         $usuarioExiste = true;
 
                     } else {
 
                         // CADASTRAR NOVO USUÁRIO.
-
                         $senhaHash = password_hash(
                             $senha,
                             PASSWORD_DEFAULT
@@ -240,7 +257,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !$erroId) {
                         $mensagem = 'Usuário cadastrado com sucesso!';
                         $tipoMensagem = 'sucesso';
 
-                        // Limpar formulário após o cadastro.
                         $usuario = [
                             'nome' => '',
                             'email' => '',
@@ -285,14 +301,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !$erroId) {
         </h1>
 
         <?php if ($mensagem !== ''): ?>
-
             <div class="alert">
                 <?= htmlspecialchars($mensagem) ?>
             </div>
-
         <?php endif; ?>
 
-        <?php if ($id === null || $usuarioExiste): ?>
+        <?php if (!$erroId && !$acessoNegado && ($id === null || $usuarioExiste)): ?>
 
             <form method="POST" action="">
 
@@ -338,24 +352,33 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !$erroId) {
 
                 <label for="tipo">Tipo</label>
 
-                <select name="tipo" id="tipo" required>
+                <?php if ($tipoUsuario === 'professor'): ?>
 
-                    <option value="aluno"
-                        <?= $usuario['tipo'] === 'aluno' ? 'selected' : '' ?>>
-                        Aluno
-                    </option>
+                    <input type="hidden" name="tipo" value="aluno">
+                    <input type="text" value="Aluno" disabled>
 
-                    <option value="professor"
-                        <?= $usuario['tipo'] === 'professor' ? 'selected' : '' ?>>
-                        Professor
-                    </option>
+                <?php else: ?>
 
-                    <option value="admin"
-                        <?= $usuario['tipo'] === 'admin' ? 'selected' : '' ?>>
-                        Administrador
-                    </option>
+                    <select name="tipo" id="tipo" required>
 
-                </select>
+                        <option value="aluno"
+                            <?= $usuario['tipo'] === 'aluno' ? 'selected' : '' ?>>
+                            Aluno
+                        </option>
+
+                        <option value="professor"
+                            <?= $usuario['tipo'] === 'professor' ? 'selected' : '' ?>>
+                            Professor
+                        </option>
+
+                        <option value="admin"
+                            <?= $usuario['tipo'] === 'admin' ? 'selected' : '' ?>>
+                            Administrador
+                        </option>
+
+                    </select>
+
+                <?php endif; ?>
 
                 <label for="status">Status</label>
 
@@ -373,9 +396,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !$erroId) {
 
                 </select>
 
-                <button type="submit">
-                    Salvar
-                </button>
+                <button type="submit">Salvar</button>
 
             </form>
 
