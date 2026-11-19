@@ -6,7 +6,7 @@ require_once __DIR__ . '/../../database/conexao.php';
 // Todos os perfis logados podem consultar os livros
 exigirLogin();
 
-// Busca os livros cadastrados no banco
+// Busca os livros cadastrados
 $consulta = $pdo->prepare(
     'SELECT id, titulo, autor, ano_publicacao,
             quantidade_total, quantidade_disponivel
@@ -67,6 +67,10 @@ $podeCadastrar = in_array(
                     <th>Ano</th>
                     <th>Total</th>
                     <th>Disponíveis</th>
+
+                    <?php if ($podeCadastrar): ?>
+                        <th>Ações</th>
+                    <?php endif; ?>
                 </tr>
             </thead>
 
@@ -87,7 +91,7 @@ $podeCadastrar = in_array(
                             </td>
 
                             <td>
-                                <?= htmlspecialchars((string) $livro['ano_publicacao'], ENT_QUOTES, 'UTF-8') ?>
+                                <?= (int) $livro['ano_publicacao'] ?>
                             </td>
 
                             <td>
@@ -98,6 +102,14 @@ $podeCadastrar = in_array(
                                 <?= (int) $livro['quantidade_disponivel'] ?>
                             </td>
 
+                            <?php if ($podeCadastrar): ?>
+                                <td>
+                                    <a href="form.php?id=<?= (int) $livro['id'] ?>">
+                                        Editar
+                                    </a>
+                                </td>
+                            <?php endif; ?>
+
                         </tr>
 
                     <?php endforeach; ?>
@@ -105,7 +117,7 @@ $podeCadastrar = in_array(
                 <?php else: ?>
 
                     <tr>
-                        <td colspan="5">
+                        <td colspan="<?= $podeCadastrar ? 6 : 5 ?>">
                             Nenhum livro cadastrado.
                         </td>
                     </tr>
